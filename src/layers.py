@@ -84,7 +84,7 @@ class AttentionLayer(nn.Module):
     def bi_attention(self, is_train, h, u):
         print "not implemented"
 
-    def forward(self, h, u, is_train):
+    def forward(self, h, u, h_mask, u_mask, is_train):
         # assume we always use q2c and c2q attention
         batch_size, max_p_length, contextual_dim = h.size()
         # by default, contextual_dim = 2d (d is hidden_dim)
