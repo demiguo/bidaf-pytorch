@@ -12,6 +12,7 @@
 # 12. finish evaluator + other
 # 13. finish all + debug
 
+# Today's goal: something that can run. and can be possibly correct
 import torch
 import torch.nn as nn 
 

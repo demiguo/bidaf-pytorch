@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
+from utils import exp_mask, softsel
+
 class MyLinear(nn.Module):
     def __init__(self, input_size, output_size, dropout=1.0):
         super(MyLinear, self).__init__()
@@ -80,18 +82,65 @@ class HighwayNetwork(nn.Module):
 class AttentionLayer(nn.Module):
     def __init__(self, config):
         self.config = config
+        self.attention_linear = MyLinear(config.contextual_dim * 3, 1, config.dropout)
+    
+    def bi_attention(self, is_train, h, u, h_mask, u_mask):
+        # NB(demi): assume we always have mask
+        assert h_mask is not None and u_mask is not None
 
-    def bi_attention(self, is_train, h, u):
-        print "not implemented"
+        # reformat to (batch_size, max_num_sent, max_p_length, max_q_length, contextual_dim)
+        h_aug = h.unsqueeze(3).repeat(1, 1, 1, self.max_q_length, 1)
+        u_aug = u.unsqueeze(1).unsqueeze(2).repeat(1, self.max_num_sent, self.max_p_length, 1, 1)
+        h_mask_aug = h_mask.unsqueeze(3).repeat(1, 1, 1, self.max_q_length, 1)
+        u_mask_aug = u_mask.unsqueeze(1).unsqueeze(2).repeat(1, self.max_num_sent, self.max_p_length, 1, 1)
+        hu_mask_aug = h_mask_aug & u_mask_aug
+
+        # sanity check
+        check_size = (self.batch_size, self.max_num_sent, self.max_p_length, self.max_q_length, self.contextual_dim)
+        assert h_aug.size() == check_size and u_aug.size() == check_size
+        assert h_mask_aug.size() == check_size and u_mask_aug.size() == check_size
+
+        # get attention matrix
+        # NB(demi): assume it's always tri-linear
+        hu_aug = h_aug * u_aug
+        hu_concat_aug = torch.cat((h_aug, u_aug, hu_aug), -1)
+        hu_concat_aug = hu_concat_aug.view(self.batch_size * self.max_num_sent * self.max_p_length * self.max_q_length, self.contextual_dim * 3)
+        logits = self.attention_linear(hu_concat_aug, is_train).view(self.batch_size, self.max_num_sent, self.max_p_length, self.max_q_length)
+        logits = exp_mask(logits, hu_mask_aug)
+
+        # get c2q attention
+        # (batch_size, max_num_sent, max_p_length, max_q_length)
+        # -> (batch_size, max_num_sent, max_p_length, contextual_dim)
+        c2q_logits = logits.view(self.batch_size * self.max_num_sent * self.max_p_length, self.max_q_length)
+        c2q_logits = nn.Softmax()(c2q_logits)
+        c2q_logits = c2q_logits.view(self.batch_size, self.max_num_sent, self.max_p_length, self.max_q_length).unsqueeze(4).repeat(1,1,1,1,self.contextual_dim)
+        u_a = c2q_logits * u_aug 
+        u_a = torch.sum(u_a, 3).view(self.batch_size, self.max_num_sent, self.max_p_length, self.contextual_dim)
+
+        # get q2c attention
+        # (batch_size, max_num_sent, max_p_length)
+        # -> (batch_size, max_num_sent, contextual_dim)
+        logits_maxq = torch.max(logits, 3)[0].view(self.batch_size, self.max_num_sent, self.max_p_length)
+        q2c_logits = logits_maxq.view(self.batch_size * self.max_num_sent, self.max_p_length)
+        q2c_logits = nn.Softmax()(q2c_logits)
+        q2c_logits = q2c_logits.view(self.batch_size, self.max_num_sent, self.max_p_length).unsqueeze(3).repeat(1,1,1,self.max_contextual_dim)
+        h_a = q2c_logits * h
+        h_a = torch.sum(h_a, 2)
+        h_a = h_a.unsqueeze(2).repeat(1, 1, self.max_p_length, 1)
+
+        return u_a, h_a
 
     def forward(self, h, u, h_mask, u_mask, is_train):
         # assume we always use q2c and c2q attention
-        batch_size, max_p_length, contextual_dim = h.size()
+        self.batch_size, self.max_num_sent, self.max_p_length, self.contextual_dim = h.size()
+        assert u.size(0) == self.batch_size and u.size(2) == self.contextual_dim
+        self.max_q_length = u.size(1)
+
         # by default, contextual_dim = 2d (d is hidden_dim)
-        u_a, h_a = self.bi_attention(is_train, h, u)
+        u_a, h_a = self.bi_attention(is_train, h, u, h_mask, u_mask)
         assert u_a.size() == h_a.size()
-        assert h_a.size() == (batch_size, max_p_length, contextual_dim)
+        assert h_a.size() == (self.batch_size, self.max_num_sent, mself.ax_p_length, self.contextual_dim)
 
         g = torch.cat((h, u_a, h * u_a, h * h_a), 2)
-        assert g.size() == (batch_size, max_p_length, 4 * contextual_dim)
+        assert g.size() == (self.batch_size, self.max_num_sent, self.max_p_length, 4 * self.contextual_dim)
         return g

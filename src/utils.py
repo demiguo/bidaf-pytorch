@@ -15,3 +15,4 @@ def zero_mask(val, mask):
 
 def exp_mask(val, mask):
 	return val + (1 - mask.float()) * kVeryNegativeNumber
+
