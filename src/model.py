@@ -85,7 +85,10 @@ class BiDAF(nn.module):
             self.word_embedding_layer.weight.data.copy_(torch.FloatTensor(glove_weight).cuda())
         else:
             self.word_embedding_layer.weight.data.copy_(torch.FloatTensor(glove_weight))
-        self.word_embedding_layer.weight.requires_grad = False
+    
+        # NB(demi): for unknown words, we set it to be all 0s. so we now use trainable glove. 
+        #           we may change this later.
+        # self.word_embedding_layer.weight.requires_grad = False
 
 
     def loss(p_1, p_2, answers):
