@@ -1,8 +1,5 @@
 # todo
 
-# 5.5: reformat data -> change it to per sentence, not per paragraph
-
-# 6.implement attention layer
 # 10. data processing (to something that i understand
     # know how to convert to a Dataset)
 # 11.finish generic main framework + config + trainer 
