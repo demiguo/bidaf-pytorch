@@ -135,7 +135,7 @@ def squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file
 
     config.log.info("squad read data: finish flatten json ......")
     # now build vocab and dictionaries
-    chars = train_chars + dev_chars
+    chars = train_chars | dev_chars
     i2c, c2i = {0:'.'}, {'.':0}  # unknown character = 0
     counter = 1
     for c in chars:
@@ -145,7 +145,7 @@ def squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file
         c2i[c] = counter
         counter += 1
 
-    vocab = train_vocab + dev_vocab
+    vocab = train_vocab | dev_vocab
     i2w, w2i = {0:'<UNK>'}, {'<UNK>':0} # unknown word = 0
     counter = 1
     for word in vocab:

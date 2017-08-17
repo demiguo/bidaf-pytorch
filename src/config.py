@@ -76,6 +76,11 @@ class Config:
         self.args["glove_dim"] = 100 
 
 
+        # model name
+        self.generate_model_name()
+        self.args["config_file"] = self.args["model_dir"] + self.args["model_name"] + ".config"
+        self.args["log_file"] = self.args["model_dir"] + self.args["model_name"] + ".log"
+        
         # set up logging
         self.log = logging.getLogger(__name__)
         self.log.setLevel(logging.DEBUG)
@@ -102,10 +107,6 @@ class Config:
                 torch.cuda.manual_seed(self.args["seed"])
                 torch.cuda.set_device(self.args["default_device"])
         self.kwargs = {'num_workers': 1, 'pin_memory': True} if self.args["use_cuda"] else {}
-
-        # model name
-        self.generate_model_name()
-        self.args["config_file"] = self.args["model_dir"] + self.args["model_name"] + ".config"
 
         self.save_config()
 
