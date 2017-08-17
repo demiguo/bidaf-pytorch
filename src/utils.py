@@ -9,6 +9,7 @@ import unicodedata
 import nltk
 import numpy as np
 import pandas as pd
+from tqdm import tqdm 
 
 import random
 
@@ -28,6 +29,7 @@ def exp_mask(val, mask):
 	return val + (1 - mask.float()) * kVeryNegativeNumber
 
 
+
 ################
 ### for data ###
 ################
@@ -43,6 +45,7 @@ def squad_flatten_json_train(filename):
 	data_passage = []
 	data_question = []
 	data_answer = []
+	data_id = []
 	for passage in f['data']:
 		for paragraph in passage['paragraphs']:
 			context = paragraph['context']
@@ -57,9 +60,9 @@ def squad_flatten_json_train(filename):
 			for qna in paragraph['qas']:
 				id_, question, answers = qa['id'], qa['question'], qa['answers']
 				answer = answers[0]['text']  # only 1 answer in training data
-				answer_start = answers[0]['answer_start']
-				answer_end = answer_start + len(answer)
-				answer_final = [(normalize(answer), answer_start, answer_end)]
+				#answer_start = answers[0]['answer_start']
+				#answer_end = answer_start + len(answer)
+				answer_final = [normalize(answer)]
 
 				question = normalize(question)
 				question_final = nltk.word_tokenize(question)
@@ -70,8 +73,9 @@ def squad_flatten_json_train(filename):
 				data_passage.append(context_final)
 				data_question.append(question_final)
 				data_answer.append(answer_final)
+				data_id.append(id_)
 	assert len(data_passage) == len(data_question) and len(data_question) == len(data_answer)
-	return (data_passage, data_question, data_answer), vocab, chars
+	return (data_id, data_passage, data_question, data_answer), vocab, chars
 
 
 """ flatten json for dev data """
@@ -82,6 +86,7 @@ def squad_flatten_json_dev(filename):
 	data_passage = []
 	data_question = []
 	data_answer = []
+	data_id = []
 	for passage in f['data']:
 		for paragraph in passage['paragraphs']:
 			context = paragraph['context']
@@ -109,10 +114,10 @@ def squad_flatten_json_dev(filename):
 				data_passage.append(context_final)
 				data_question.append(question_final)
 				data_answer.append(answer_final)
+				data_id.append(id_)
 
 	assert len(data_passage) == len(data_question) and len(data_question) == len(data_answer)
-	return (data_passage, data_question, data_answer), vocab, chars
-
+	return (data_id, data_passage, data_question, data_answer), vocab, chars
 
 
 
@@ -164,22 +169,68 @@ def squad_read_data(train_file, dev_file, old_glove_file, new_glove_file):
 	f.close()
 	out.close()
 
-	return train_data, dev_data, i2w, w2i, i2c, c2i, new_glove_file, glove_dim
+	return train_data, dev_data, i2w, w2i, i2c, c2i, new_glove_file, glove_dim, len(vocab), len(chars)
+
+""" get exact answer span index in passage based on answer text """
+def get_answer_span(passage, answer, config):
+	num_sent = len(passage)
+	answer_len = len(answer.split(" "))
+	# TODO(demi): not very efficient right now, we may need to speed it up
+
+	max_p_length = config.args["max_p_length"]
+	words = []
+	positions = []
+	for i in range(len(passage)):
+		for j in range(len(passage[i])):
+			words.append(passage[i][j])
+			positions.append((i,j))
+	for i in range(len(words)):
+		j = i + answer_len # [i, j)
+		if j > len(words):
+			break # overflow
+		if " ".join(words[i:j]) == answer:
+			# get start_id
+			x, y = positions[i]
+			start_id =  x * max_p_length + y
+			# get end_id
+			x, y = positions[j-1]
+			end_id = x * max_p_length + y
+			return start_id, end_id
+	config.log.warning("can't find answer for {}".format(answer))
+	return 0, 0  
 
 """ create mask and align data converted into indices. return new dataset & mask (numpy) """
 def make_dataset(config, data, w2i, c2i):
-	data_passage, data_question, data_answer = data
+	data_id, data_passage, data_question, data_answer = data
 
 	batch_size = len(data)
+	new_data_id = np.array(data_id)
 	new_data_passage = np.zeros((batch_size, config.max_num_sent, config.max_p_length))
 	new_data_passage_mask = np.zeros((batch_size, config.max_num_sent, config.max_p_length))
 	new_data_passage_char = np.zeros((batch_size, config.max_num_sent, config.max_p_length, config.max_word_size))
 	new_data_question = np.zeros((batch_size, config.max_q_length))
 	new_data_question_mask = np.zeros((batch_size, config.max_q_length))
 	new_data_question_char = np.zeros((batch_size, config.max_q_length, config.max_word_size))
-	new_data_answer = data_answer
+	new_answer_start = np.zeros((batch_size))
+	new_answer_end = np.zeros((batch_size))
 
-	# process passages
+
+	# new_answer_start - new_answer_end (happy to know you)
+	for batch_id in tqdm(range(batch_size), desc="finding exact answer span"):
+		cur_answer_start = []
+		cur_answer_end = []
+		for answer in data_answer[batch_id]:
+			astart, aend = find_answer_span(data_passage[batch_id], answer, config.args["max_num_sent"], config.args["max_p_length"])
+			cur_answer_start.append(astart)
+			cur_answer_end.append(aend)
+
+		# NB(demi): currently, even for dev, we only select on answer
+		random.seed(config.args["seed"])
+		select_id = random.choice(range(len(data_answer[batch_id])))
+		new_answer_start[batch_id] = cur_answer_start[select_id]
+		new_answer_end[batch_id] = cur_answer_end[select_id]
+
+	# process passaged
 	for i in range(batch_size):
 		passage = data_passage[i]
 		for j in range(len(passage)):
@@ -208,7 +259,8 @@ def make_dataset(config, data, w2i, c2i):
 				assert ch in c2i, "char {} not found in c2i dictionary".format(ch)
 				new_data_question_char[i][j][z] = c2i[ch]
 
-	return (new_data_passage, new_data_question, new_data_passage_char, new_data_question_char, new_data_passage_mask, new_data_question_mask)
+	return (new_data_id, new_data_passage, new_data_question, new_data_passage_char, new_data_question_char, new_data_passage_mask, new_data_question_mask,\
+			new_answer_start, new_answer_end)
 
 ################
 ### datasets ###
@@ -216,7 +268,7 @@ def make_dataset(config, data, w2i, c2i):
 """ Dataset. Each item is a batched dataset. """
 class QnADataset(torch.utils.data.Dataset):
     def __init__(self, data, config):
-    	data_passage, data_question, data_passage_char, data_question_char, data_passage_mask, data_question_mask = data
+    	data_id, data_passage, data_question, data_passage_char, data_question_char, data_passage_mask, data_question_mask, answer_start, answer_end = data
     	
     	self.data_size = len(data_passage)
     	indices = range(self.data_size)
@@ -229,20 +281,34 @@ class QnADataset(torch.utils.data.Dataset):
     	self.questions_char = []
     	self.passages_mask = []
     	self.questions_mask = []
-    	for i in range(0, self.data_size, config.args.batch_size):
-    		j = min(config.args.batch_size + i, self.data_size)
+    	self.ids = []
+    	self.answer_starts = []
+    	self.answer_ends = []
+    	for i in range(0, self.data_size, config.args["batch_size"]):
+    		j = min(config.args["batch_size"] + i, self.data_size)
     		assert i != j
     		# batch: [i, j)
+			self.ids.append(data_id[i:j])
 			self.passages.append(data_passage[i:j])
 			self.questions.append(data_question[i:j])
 			self.passages_char.append(data_passage_char[i:j])
 			self.questions_char.append(data_question_char[i:j])
 			self.passages_mask.append(data_passage_mask[i:j])
 			self.questions_mask.append(data_question_mask[i:j])
+			self.answer_starts.append(answer_start[i:j])
+			self.answer_ends.append(answer_ends[i:j])
 
 	def __getitem__(self, index):
 		# NB(demi): assume it's already numpy arrays
-		return passages[index], questions[index], passages_char[index], questions_char[index], passages_mask[index], questions_mask[index]
+		return self.ids[index],
+			   self.passages[index],
+			   self.questions[index],
+			   self.passages_char[index],
+			   self.questions_char[index],
+			   self.passages_mask[index],
+			   self.questions_mask[index], 
+			   self.answer_starts[index],
+			   self.answer_ends[index]
 
 	def __len__(self):
 		return self.data_size
