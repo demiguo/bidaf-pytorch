@@ -48,8 +48,9 @@ def squad_flatten_json_train(config, filename):
     data_answer = []
     data_id = []
     counter = 0
-    for passage in f['data']:
-        for paragraph in passage['paragraphs']:
+    for passage in tqdm(f['data'], desc="squad flatten json train data"):
+        counter += 1
+        for paragraph in tqdm(passage['paragraphs'], desc="passage %d"%counter):
             context = paragraph['context']
             context = normalize(context)
             context_final = context.split('.')
@@ -60,9 +61,6 @@ def squad_flatten_json_train(config, filename):
                     for c in word:
                         chars.add(c)
             for qa in paragraph['qas']:
-                counter += 1 # new qa
-                if counter % 100 == 0:
-                    config.log.info("squad flatten json train data: load %d Q&As" % counter)
                 id_, question, answers = qa['id'], qa['question'], qa['answers']
                 answer = answers[0]['text']  # only 1 answer in training data
                 #answer_start = answers[0]['answer_start']
@@ -92,11 +90,13 @@ def squad_flatten_json_dev(config, filename):
     data_question = []
     data_answer = []
     data_id = []
+    counter_paragraph = 0
     counter = 0
-    for passage in f['data']:
-        for paragraph in passage['paragraphs']:
+    for passage in tqdm(f['data'], desc="squad flatten json dev data"):
+        counter += 1
+        for paragraph in tqdm(passage['paragraphs'], desc="passage %d"%counter):
             context = paragraph['context']
-            context = noramlize(context)
+            context = normalize(context)
             context_final = context.split('.')
             context_final = [nltk.word_tokenize(sent) for sent in context_final]
             for sent in context_final:
@@ -104,11 +104,9 @@ def squad_flatten_json_dev(config, filename):
                     vocab.add(word) 
                     for c in word:
                         chars.add(c)
+            counter_paragraph += 1
 
-            for qna in paragraph['qas']:
-                counter += 1 # new qa
-                if counter % 100 == 0:
-                    config.log.info("squad flatten json train data: load %d Q&As" % counter)
+            for qa in paragraph['qas']:
                 id_, question, answers = qa['id'], qa['question'], qa['answers']
                 answers = [normalize(a['text']) for a in answers]               
                 answer_final = answers
