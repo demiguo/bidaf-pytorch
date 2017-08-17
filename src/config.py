@@ -26,14 +26,20 @@ class Config:
         self.args = {}
         self.epoch = -1
 
-
     """ generate model name from user config """
     def generate_model_name(self):
-        print "not implemented"
+        now = datetime.datetime.now()
+        model_name="BIDAF-%s_%s_%s_%s_%s" % (now.year, now.month, now.day, now.hour, now.minute)
+        self.args["model_name"] = model_name
+        return model_name
 
-    """ Save config """
+    """ save config args"""
     def save_config(self):
-        print "not implemented"
+        np.save(self.args["config_file"], self.args)
+
+    """ load config args"""
+    def load_config(self):
+        self.args = np.load(self.args["config_file"] + ".npy")
 
     """ load user config (hyper-parameters) """
     def load_user_config(self):
@@ -43,7 +49,7 @@ class Config:
         parser.add_argument("-log_file", "--log_file", help="Logging File", required=False, default="../models/sample.log")
         parser.add_argument("-glove_file", "--glove_file", help="Glove File", required=False, default="../data/glove/glove.6B.100d.txt")
         parser.add_argument("-model_dir", "--model_dir", help="Model Directory", required=False, default="../models/")
-        parser.add_argument("-model_name", "--model_name", help="Model Name", required=False, default="tmp")
+        parser.add_argument("-model_name", "--model_name", help="Model Name", required=False, default="sample")
         
         parser.add_argument("-mode", "--mode", help="Mode of the program", required=False, default="train")
         parser.add_argument("-use_cuda", "--use_cuda", help="Whether to use cuda or not", type=bool, required=False, default=True)
@@ -55,7 +61,7 @@ class Config:
         parser.add_argument("-optimizer", "--optimizer", help="Optimizer", required=False, default="Adadelta")
         parser.add_argument("-lr", "--lr", help="Learning Rate", type=float, required=False, default=0.5)
         parser.add_argument("-dropout", "--dropout", help="Drop Out Rate", type=float, required=False, default=0.2)
-        parser.add_argument("-?", "?")
+        # TODO(demi): add weight_decay and var_decay
 
         parser.add_argument("-hidden_dim", "--hidden_dim", help="Hidden Size of the model", type=int, required=False, default=100)
         parser.add_argument("-char_embedding_dim", "--char_embedding_dim", help="Char Embedding dimension (output channel dimension of CNN)", type=int, required=False, default=100)
@@ -88,10 +94,10 @@ class Config:
         np.random.seed(self.args["seed"])
         random.seed(self.args["seed"])
         torch.manual_seed(self.args["seed"])
-        if torch.args["use_cuda"]:
+        if self.args["use_cuda"]:
             if not torch.cuda.is_available():
-                self.config.log.warning("cuda: your cuda is not available. force to switch to non-cuda mode...")
-                torch.args["use_cuda"] = False
+                self.log.warning("cuda: your cuda is not available. force to switch to non-cuda mode...")
+                self.args["use_cuda"] = False
             else:
                 torch.cuda.manual_seed(self.args["seed"])
                 torch.cuda.set_device(self.args["default_device"])
@@ -99,9 +105,9 @@ class Config:
 
         # model name
         self.generate_model_name()
+        self.args["config_file"] = self.args["model_dir"] + self.args["model_name"] + ".config"
 
-
-        self.save_config(self.args["model_dir"] + self.args["model_name"] + ".config")
+        self.save_config()
 
     """ update user config (hyper-parameters) - single"""
     def update_single(self, name, val):
@@ -113,3 +119,10 @@ class Config:
             name,val=pr
             self.update_single(name, val)
 
+    """ args to string | pretty format"""
+    def format_string(self):
+        output = "config: {\n"
+        for config_item in config.args:
+            output += "\t{}:{}\n".format(config_item, config.args[config_item])
+        output += "}\n"
+        return output 
