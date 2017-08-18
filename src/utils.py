@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm 
 import re
+import io
+import os
 
 import random
 
@@ -40,6 +42,13 @@ def normalize(text):
 
 """ flatten json for train data """
 def squad_flatten_json_train(config, filename):
+    save_filename = filename + ".flatten"
+    if os.path.isfile(save_filename+".npz"):
+        config.log.info("squad flatten json train: already flattened - skip")
+        datafile = np.load(save_filename+".npz")
+        config.log.info("squad flatten json train: finish loading")
+        return (datafile['data_id'], datafile['data_passage'], datafile['data_question'],
+                datafile['data_answer']), Set(datafile['vocab_list']), Set(datafile['chars_list'])
     vocab = Set([])
     chars = Set([])
     f = json.loads(open(filename).read())
@@ -78,11 +87,19 @@ def squad_flatten_json_train(config, filename):
                 data_answer.append(answer_final)
                 data_id.append(id_)
     assert len(data_passage) == len(data_question) and len(data_question) == len(data_answer)
+    np.savez(save_filename, data_id=data_id, data_passage=data_passage, data_question=data_question, data_answer=data_answer, vocab_list=list(vocab), chars_list=list(chars))
     return (data_id, data_passage, data_question, data_answer), vocab, chars
 
 
 """ flatten json for dev data """
 def squad_flatten_json_dev(config, filename):
+    save_filename = filename + ".flatten"
+    if os.path.isfile(save_filename+".npz"):
+        config.log.info("squad flatten json dev: already flattened - skip")
+        datafile = np.load(save_filename+".npz")
+        config.log.info("squad flatten json dev: finish loading")
+        return (datafile['data_id'], datafile['data_passage'], datafile['data_question'],
+                datafile['data_answer']), Set(datafile['vocab_list']), Set(datafile['chars_list'])
     vocab = Set([])
     chars = Set([])
     f = json.loads(open(filename).read())
@@ -124,6 +141,7 @@ def squad_flatten_json_dev(config, filename):
                 data_id.append(id_)
 
     assert len(data_passage) == len(data_question) and len(data_question) == len(data_answer)
+    np.savez(save_filename, data_id=data_id, data_passage=data_passage, data_question=data_question, data_answer=data_answer, vocab_list=list(vocab), chars_list=list(chars))
     return (data_id, data_passage, data_question, data_answer), vocab, chars
 
 
@@ -146,6 +164,8 @@ def squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file
         counter += 1
 
     vocab = train_vocab | dev_vocab
+
+    # QS(demi): do i need to convert them into unicode
     i2w, w2i = {0:'<UNK>'}, {'<UNK>':0} # unknown word = 0
     counter = 1
     for word in vocab:
@@ -154,30 +174,37 @@ def squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file
         i2w[counter] = word
         w2i[word] = counter
         counter += 1
-    assert counter == len(vocab)
+
+    counter = len(w2i)
 
 
     # new glove file
-    f = open(old_glove_file)
+    f = io.open(old_glove_file, encoding="utf-8")
     out = open(new_glove_file, "w")
     lines = f.readlines()
     assert len(lines) >= 1
     glove_dim = len(lines[0].split(" ")) - 1
 
-    all_zero = " ".join([0] * glove_dim)
+    all_zero = " ".join(["0"] * glove_dim)
     glove_matrix = [all_zero] * counter  # for unknown words, we set them to all zeros
+    print "glove_matrix.len = ", len(glove_matrix)
     for line in lines:
         line = line.split(" ")
-        word = unicode(noramlize(line[0]))
-        vec_str = line[1:]
+        # TODO(demi): figure out the right thing to do
+        word = normalize(line[0])
+        vec_str = " ".join(line[1:])
         if word in vocab:
+            if w2i[word] >= counter:
+                print "word={} w2i={}, len(w2i)={} len(vocab)={} counter={}".format(word.encode("utf-8"),w2i[word],len(w2i),len(vocab),counter)
             glove_matrix[w2i[word]] = vec_str
+        else:
+            print "not found word {}".format(word.encode("utf-8"))
     for glove_line in glove_matrix:
         out.write(glove_line + "\n")
     f.close()
     out.close()
 
-    return train_data, dev_data, i2w, w2i, i2c, c2i, new_glove_file, glove_dim, len(vocab), len(chars)
+    return train_data, dev_data, i2w, w2i, i2c, c2i, new_glove_file, glove_dim, len(w2i), len(c2i)
 
 """ get exact answer span index in passage based on answer text """
 def get_answer_span(passage, answer, config):
