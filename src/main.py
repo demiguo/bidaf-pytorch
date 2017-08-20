@@ -10,8 +10,13 @@ import torch.utils.data
 import datetime
 import copy
 
+
 from utils import squad_read_data, make_dataset, QnADataset
 from config import Config
+from model import BiDAF
+
+from trainer import Trainer
+from evaluator import Evaluator
 
 def main(argv):
     config = Config()
@@ -23,21 +28,22 @@ def main(argv):
     old_glove_file = config.args["glove_file"]
     new_glove_file = config.args["glove_file"] + ".subset"
 
+    # TODO(demi): switch "overwrite" to False
     train_data_raw, dev_data_raw, i2w, w2i, i2c, c2i, new_glove_file, glove_dim, vocab_size, char_vocab_size\
-         = squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file)
+         = squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file, overwrite=True)  
     config.log.info("finish reading squad data in raw formats")
 
-    config.update([("glove_file", new_glove_file), 
+    config.update_batch([("glove_file", new_glove_file), 
                    ("glove_dim", glove_dim), 
                    ("vocab_size", vocab_size),
                    ("char_vocab_size", char_vocab_size)])
 
 
-    config.log.warning("reminder: now we only support train mode")
-    assert config.args["mode"] == "train", "mode not found"
+    config.log.warning("reminder: now we only support train/fake mode")
+    assert config.args["mode"] in ["trian", "fake"], "mode not found"
 
-    train_data = make_dataset(config, train_data_raw, w2i, c2i)
-    dev_data = make_dataset(config, dev_data_raw, w2i, c2i)
+    train_id_conversion, train_data = make_dataset(config, train_data_raw, w2i, c2i)
+    dev_id_conversion, dev_data = make_dataset(config, dev_data_raw, w2i, c2i)
     config.log.info("finish making datasets: reformatting raw data")
 
     train_data = QnADataset(train_data, config)
@@ -48,9 +54,10 @@ def main(argv):
     dev_loader = torch.utils.data.DataLoader(dev_data, batch_size=1, **config.kwargs)
     config.log.info("finish generating data loader")
 
+
     model = BiDAF(config, i2w)
     config.log.info("finish creating model")
-    if config.use_cuda:
+    if config.args["use_cuda"]:
         model.cuda()
 
     # log config and model
@@ -67,8 +74,7 @@ def main(argv):
         optimizer = torch.optim.Adadelta(model.get_train_parameters(), lr=config.args["lr"])
     #if config.args['optimizer'] == "Adagrad":
 
-    # NB(demi): currently, let's first only support train mode
-    assert config.args["mode"] == "train"
+
 
     config.log.info("model = %s" % model)
     config.log.info("config = %s" % config.format_string())
@@ -90,8 +96,8 @@ def main(argv):
     for epoch in range(1, config.args["max_epoch"] + 1):
         config.log.info("training: epoch %d" % epoch)
         # QS(demi): do i need to return model & optimizer?
-        model, optimizer, train_avg_loss, train_answer_dict = trainer.run(model, train_loader, optimizer, mode="train")
-        model, optimizer, dev_avg_loss, dev_answer_dict = trainer.run(model, dev_loader, optimizer, mode="dev")
+        model, optimizer, train_avg_loss, train_answer_dict = trainer.run(model, train_id_conversion[0], train_loader, optimizer, mode="train")
+        model, optimizer, dev_avg_loss, dev_answer_dict = trainer.run(model, dev_id_conversion[0], dev_loader, optimizer, mode="dev")
 
         # loss is a float tensor with size 1
         config.log.info("[EPOCH %d] LOSS = (train)%.5lf | (dev)%.5lf" % (epoch, train_avg_loss[0], test_avg_loss[0]))

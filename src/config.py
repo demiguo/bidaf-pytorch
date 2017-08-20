@@ -63,12 +63,22 @@ class Config:
         parser.add_argument("-dropout", "--dropout", help="Drop Out Rate", type=float, required=False, default=0.2)
         # TODO(demi): add weight_decay and var_decay
 
+        parser.add_argument("-highway_num_layers", "--highway_num_layers", help="number of layers in highway network for char embedding", type=int, required=False, default=2)
         parser.add_argument("-hidden_dim", "--hidden_dim", help="Hidden Size of the model", type=int, required=False, default=100)
         parser.add_argument("-char_embedding_dim", "--char_embedding_dim", help="Char Embedding dimension (output channel dimension of CNN)", type=int, required=False, default=100)
         parser.add_argument("-char_single_embedding_dim", "--char_single_embedding_dim", help="Char Embedding dimension for single character", type=int, required=False, default=8)
         parser.add_argument("-filter_height", "--filter_height", help="Filter Height for Char Embedding CNN layer", type=int, required=False, default=5)
 
+        parser.add_argument("-max_num_sent", "--max_num_sent", help="Max number of sentences in a paragraph", type=int, required=False, default=8)
+        parser.add_argument("-max_p_length", "--max_p_length", help="Max length of a passage", type=int, required=False, default=400)
+        parser.add_argument("-max_q_length", "--max_q_length", help="Max length of a query", type=int, required=False, default=30)
+        parser.add_argument("-max_word_size", "--max_word_size", help="Max length of a word", type=int, required=False, default=16)
+        
         self.args = vars(parser.parse_args())
+
+        if self.args["mode"] == "fake":
+            self.args["train_file"] = "../data/squad/sample-train.json"
+            self.args["dev_file"] = "../data/squad/sample-dev.json"
 
         # NB(demi): These following parameters will be automatically generated in main
         self.args["vocab_size"] = 0
@@ -76,11 +86,12 @@ class Config:
         self.args["glove_dim"] = 100 
 
 
+
         # model name
         self.generate_model_name()
         self.args["config_file"] = self.args["model_dir"] + self.args["model_name"] + ".config"
         self.args["log_file"] = self.args["model_dir"] + self.args["model_name"] + ".log"
-        
+
         # set up logging
         self.log = logging.getLogger(__name__)
         self.log.setLevel(logging.DEBUG)
@@ -123,7 +134,7 @@ class Config:
     """ args to string | pretty format"""
     def format_string(self):
         output = "config: {\n"
-        for config_item in config.args:
-            output += "\t{}:{}\n".format(config_item, config.args[config_item])
+        for config_item in self.args:
+            output += "\t{}:{}\n".format(config_item, self.args[config_item])
         output += "}\n"
         return output 
