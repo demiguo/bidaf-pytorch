@@ -34,7 +34,6 @@ class CharEmbeddingLayer(nn.Module):
 
     def forward(self, text_char, is_train):
         batch_size, max_length, max_word_length = text_char.size()
-        print "batch_size=%d, max_length=%d, max_word_length=%d" % (batch_size, max_length, max_word_length)
         # embedding look up
         text_char = text_char.contiguous().view(batch_size * max_length, max_word_length)
         text_char = self.embedding_lookup(text_char)
@@ -70,7 +69,6 @@ class HighwayNetwork(nn.Module):
         self.gate = nn.ModuleList([MyLinear(size, size, dropout) for _ in range(num_layers)])
 
     def forward(self, x, is_train):
-        print "x.size()=",x.size()
         assert len(x.size()) == 2 and x.size(1) == self.size
         for layer in range(self.num_layers):
             gate = nn.functional.sigmoid(self.gate[layer](x, is_train))
@@ -97,11 +95,6 @@ class AttentionLayer(nn.Module):
         h_mask_aug = h_mask.unsqueeze(3).repeat(1, 1, 1, self.max_q_length)
         u_mask_aug = u_mask.unsqueeze(1).unsqueeze(2).repeat(1, self.max_num_sent, self.max_p_length, 1)
 
-        self.config.log.info("batch_size=%d, max_num_sent=%d, max_p_length=%d, max_q_length=%d"%(self.batch_size, self.max_num_sent, self.max_p_length, self.max_q_length))
-        print "h_aug.size()=", h_aug.size()
-        print "u_aug.size()=", u_aug.size()
-        print "h_mask_aug.size()=",h_mask_aug.size()
-        print "u_mask_aug.size()=", u_mask_aug.size()
         assert h_mask_aug.size() == u_mask_aug.size()
         # NB(demi): perform dot product (equivalent to and operator)
         hu_mask_aug = h_mask_aug * u_mask_aug
@@ -115,7 +108,7 @@ class AttentionLayer(nn.Module):
         # get attention matrix
         # NB(demi): assume it's always tri-linear
         hu_aug = h_aug * u_aug
-        hu_concat_aug = torch.cat((h_aug, u_aug, hu_aug), -1)
+        hu_concat_aug = torch.cat((h_aug, u_aug, hu_aug), 4)
         hu_concat_aug = hu_concat_aug.view(self.batch_size * self.max_num_sent * self.max_p_length * self.max_q_length, self.contextual_dim * 3)
         logits = self.attention_linear(hu_concat_aug, is_train).view(self.batch_size, self.max_num_sent, self.max_p_length, self.max_q_length)
         logits = exp_mask(logits, hu_mask_aug)
@@ -150,8 +143,6 @@ class AttentionLayer(nn.Module):
         self.max_q_length = u.size(1)
 
         # sanity check
-        print "h_masks.size()=", h_mask.size()
-        print "u_mask.size()=", u_mask.size()
         assert h_mask.size() == (self.batch_size, self.max_num_sent, self.max_p_length)
         assert u_mask.size() == (self.batch_size, self.max_q_length)
 

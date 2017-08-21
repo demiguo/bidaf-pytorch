@@ -63,7 +63,6 @@ class BiDAF(nn.Module):
     def init_config(self, passages, questions, passages_char, questions_char, passages_mask, questions_mask, answer_starts, answer_ends, ids):
         # NB(demi): max_num_sent, max_p_length, max_word_size, max_q_length should be fixed, and in config
         #           batch_size may vary [depends on implementation]
-        self.config.log.info("model/init_config: passages_char.size() = {}".format(passages_char.size()))
         self.batch_size, self.max_num_sent, self.max_p_length, self.max_word_size = passages_char.size()
 
         self.max_q_length = questions_char.size(1)
@@ -109,14 +108,16 @@ class BiDAF(nn.Module):
 
     def get_loss(self, p_1, p_2, answer_starts, answer_ends):
         loss_criterion = nn.CrossEntropyLoss()  # log softmax + nll_loss
-        answer_starts = answer_starts.contiguous().view(self.batch_size, self.max_num_sent * self.max_p_length)        
-        answer_ends = answer_ends.contiguous().view(self.batch_size, self.max_num_sent * self.max_p_length)        
-        assert p_1.size() == (self.batch_size)  # 0-based index in flat [max_num_sent*max_p_length] array
-        assert p_2.size() == (self.batch_size) # 0-based index in flat [max_num_sent*max_p_length] array
+        assert p_1.size() == (self.batch_size, self.max_num_sent * self.max_p_length)  # 0-based index in flat [max_num_sent*max_p_length] array
+        assert p_2.size() == (self.batch_size, self.max_num_sent * self.max_p_length) # 0-based index in flat [max_num_sent*max_p_length] array
         loss = loss_criterion(p_1, answer_starts) + loss_criterion(p_2, answer_ends)
         return loss
 
     def get_answer(self, p_1_softmax, p_2_softmax, passages, passages_mask, ids, id_new2old):
+        # sanity check
+        assert passages.size() == passages_mask.size() and passages.size() == (self.batch_size, self.max_num_sent, self.max_p_length)
+        assert ids.size() == (self.batch_size,)
+
         # NB/TODO(demi): now, we only consider spans in a single sentence
         i2answer_dict = {}
         p_1 = p_1_softmax.contiguous().view(self.batch_size, self.max_num_sent, self.max_p_length)
@@ -128,13 +129,30 @@ class BiDAF(nn.Module):
                 start_idx = -1
                 start_prob = -1e30
 
+                """
+                # print sentence
+                print "print sentence in a passage:\n"
+                words = []
                 for idx in range(self.max_p_length):
-                    if passages_mask[batch_id][sent_id][idx] == 0:
+                    words.append(self.i2w[passages[batch_id][sent_id][idx].data[0]].encode("utf-8"))
+                print " ".join(words)
+
+                # print mask
+                print "print mask:\n"
+                masks = []
+                for idx in range(self.max_p_length):
+                    assert passages_mask[batch_id][sent_id][idx].data[0] == 0 or passages_mask[batch_id][sent_id][idx].data[0] == 1
+                    masks.append("1" if passages_mask[batch_id][sent_id][idx].data[0] == 1 else "0")
+                print " ".join(masks)
+                """
+
+                for idx in range(self.max_p_length):
+                    if passages_mask[batch_id][sent_id][idx].data[0] == 0:
                         # out of range
                         break
-                    cur_prob = p_1[batch_idx][sent_id][idx]
+                    cur_prob = p_1[batch_id][sent_id][idx]
                     if cur_prob > start_prob + eps:
-                        start_prob = p_1[batch_idx][sent_id][idx]
+                        start_prob = p_1[batch_id][sent_id][idx]
                         start_idx = idx
 
                     if cur_prob * start_prob > best_prob + eps:
@@ -145,11 +163,11 @@ class BiDAF(nn.Module):
                 self.config.log.warning("model -> get answer: can't find best answer span")
                 best_answer_text = ""
             else:
-                word_ids = passages[batch_id, best_answer[0], best_answer[1]:beset_answer[2]+1]
-                word_ids = word_ids.contiguous().view(-1).cpu().numpy()
-                words = map(lambda idx: i2w[idx], word_ids)
+                word_ids = passages[batch_id, best_answer[0], best_answer[1]:best_answer[2]+1]
+                word_ids = word_ids.contiguous().view(-1).data.cpu().numpy()
+                words = map(lambda idx: self.i2w[idx], word_ids)
                 best_answer_text = " ".join(words)
-            cur_old_id = id_new2old[ids[batch_id]]
+            cur_old_id = id_new2old[ids[batch_id].data[0]]
             i2answer_dict[cur_old_id] = best_answer_text
         return i2answer_dict
 
@@ -195,6 +213,8 @@ class BiDAF(nn.Module):
         # now reshape back
         p_embed_X = p_embed_X.contiguous().view(self.batch_size, self.max_num_sent, self.max_p_length, self.embedding_dim)
         q_embed_Q = q_embed_Q.contiguous().view(self.batch_size, self.max_q_length, self.embedding_dim)
+        if self.config.args["mode"] == "fake":
+            self.config.log.info("finish embedding layer")
 
         ### CONTEXTUAL EMBEDDING LAYER ###
         p_embed_X = p_embed_X.contiguous().view(self.batch_size * self.max_num_sent, self.max_p_length, self.embedding_dim)
@@ -202,21 +222,21 @@ class BiDAF(nn.Module):
         self.p_context_hidden = self.init_hidden(self.contextual_dim, self.batch_size * self.max_num_sent)
         self.q_context_hidden = self.init_hidden(self.contextual_dim, self.batch_size)
 
-        
-        print "p_context_H.size()=", p_embed_X.size()
-        print "p_context_hidden.size()=", self.p_context_hidden[0].size(), " | ", self.p_context_hidden[1].size()
-
-
         p_context_H, self.p_context_hidden = self.context_biLSTM(p_embed_X, self.p_context_hidden)
         q_context_U, self.q_context_hidden = self.context_biLSTM(q_embed_Q, self.q_context_hidden)
         assert p_context_H.size() == (self.batch_size * self.max_num_sent, self.max_p_length, self.contextual_dim)
         assert q_context_U.size() == (self.batch_size, self.max_q_length, self.contextual_dim)
         p_context_H = p_context_H.contiguous().view(self.batch_size, self.max_num_sent, self.max_p_length, self.contextual_dim)
         # TODO(demi): zero mask on p_context_H and q_context_U
+        if self.config.args["mode"] == "fake":
+            self.config.log.info("finish contextual layer")
+
 
         ### ATTENTION LAYER ###
         G = self.attention_layer(p_context_H, q_context_U, passages_mask, questions_mask, self.training)
         assert G.size() == (self.batch_size, self.max_num_sent, self.max_p_length, self.attention_dim)
+        if self.config.args["mode"] == "fake":
+            self.config.log.info("finish attention layer")
 
         ### MODELING LAYER ###
         G_patched = G.contiguous().view(self.batch_size * self.max_num_sent, self.max_p_length, self.attention_dim)
@@ -225,9 +245,11 @@ class BiDAF(nn.Module):
         assert M.size() == (self.batch_size * self.max_num_sent, self.max_p_length, self.model_dim)
         M = M.contiguous().view(self.batch_size, self.max_num_sent, self.max_p_length, self.model_dim)
         # TODO(demi): zero mask on M
+        if self.config.args["mode"] == "fake":
+            self.config.log.info("finish modeling layer")
 
         ### OUTPUT LAYER ###
-        p_1 = torch.cat((G, M), -1) # dim 3
+        p_1 = torch.cat((G, M), 3) # dim 3
         p_1 = p_1.contiguous().view(self.batch_size * self.max_num_sent * self.max_p_length, self.model_dim + self.attention_dim)
         # TODO(demi): add dropout layer if necessary
         p_1 = self.w_p1(p_1)
@@ -236,13 +258,15 @@ class BiDAF(nn.Module):
         p_1 = exp_mask(p_1, passages_mask)
         p_1 = p_1.contiguous().view(self.batch_size, self.max_num_sent * self.max_p_length)
         p_1_softmax = nn.Softmax()(p_1)
+        if self.config.args["mode"] == "fake":
+            self.config.log.info("finish output layer 1")
 
         self.output_hidden = self.init_hidden(self.model_dim, self.batch_size * self.max_num_sent)
         M_patched = M.contiguous().view(self.batch_size * self.max_num_sent, self.max_p_length, self.model_dim)
         M_2, self.output_hidden = self.output_biLSTM(M_patched, self.output_hidden)
         M_2 = M_2.contiguous().view(self.batch_size, self.max_num_sent, self.max_p_length, self.model_dim)
 
-        p_2 = torch.cat((G, M_2), -1) # dim 3
+        p_2 = torch.cat((G, M_2), 3) # dim 3
         p_2 = p_2.contiguous().view(self.batch_size * self.max_num_sent * self.max_p_length, self.attention_dim + self.model_dim)
         # TODO(demi): add dropout layer if necessary
         p_2 = self.w_p2(p_2)
@@ -251,11 +275,20 @@ class BiDAF(nn.Module):
         p_2 = exp_mask(p_2, passages_mask)
         p_2 = p_2.view(self.batch_size, self.max_num_sent * self.max_p_length)
         p_2_softmax = nn.Softmax()(p_2)
+        if self.config.args["mode"] == "fake":
+            self.config.log.info("finish output layer 2")
 
-
+        passages = passages.contiguous().view(self.batch_size, self.max_num_sent, self.max_p_length)
+        passages_mask = passages_mask.contiguous().view(self.batch_size, self.max_num_sent, self.max_p_length)
         loss = self.get_loss(p_1, p_2, answer_starts, answer_ends)
+        if self.config.args["mode"] == "fake":
+            self.config.log.info("finish get loss")
+
         if need_get_answer:
             answers = self.get_answer(p_1_softmax, p_2_softmax, passages, passages_mask, ids, id_new2old)
         else:
             answers = {}
+        if self.config.args["mode"] == "fake":
+            self.config.log.info("finish get answer")
+
         return loss, answers

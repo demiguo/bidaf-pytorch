@@ -18,7 +18,7 @@ class Trainer:
 
     def run(self, model, id_new2old, data_loader, optimizer, mode="train"):
         # return model, optimizer, avg_loss, answer_dict
-        assert mode == "train" or mode == "test", "[ERROR]Try to execute Trainer in unknown mode: %s" % mode
+        assert mode == "train" or mode == "dev", "[ERROR]Try to execute Trainer in unknown mode: %s" % mode
 
         if mode == "train":
             model.train()
@@ -48,12 +48,23 @@ class Trainer:
             if mode == "train":
                 optimizer.zero_grad()
             cur_loss, cur_answer_dict = model(id_new2old, *data_variable)
-            total_loss += neg_log_likelihood.data
+            if self.config.args["mode"] == "fake":
+                self.config.log.info("trainer: finish running model")
+            assert not np.isnan(cur_loss.data[0]), "[WARNING]Model Diverge with Loss = NaN"
+            total_loss += cur_loss.data
             answer_dict.update(cur_answer_dict)
+            if self.config.args["mode"] == "fake":
+                self.config.log.info("trainer: finish updating answer dict")
+
             if mode == "train":
                 cur_loss /= data_variable[0].size(0)   # normalize loss
+                print "cur_loss=", cur_loss
+                cur_loss.backward()
                 torch.nn.utils.clip_grad_norm(model.get_train_parameters(), self.config.args.get("clip", 5.0))
                 optimizer.step()
+            
+            if self.config.args["mode"] == "fake":
+                self.config.log.info("trainer: finish updating model")
 
         assert total_batch != 0, "Trainer: no data found (total_batch = 0)"
         avg_loss = total_loss / total_batch

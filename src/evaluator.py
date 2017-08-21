@@ -18,18 +18,20 @@ class Evaluator:
 	def __init__(self, config):
 		self.config = config
 
-	def official_eval(target_file, predict_dict, predict_file):
-		f = open(predict_filename, "w")
+	def official_eval(self, target_file, predict_dict, predict_file):
+		f = open(predict_file, "w")
 		json.dump(predict_dict, f)
 		f.close()
 
 		# NB(demi): very hacky for now
 		cmd = "python official_evaluator.py {} {}".format(target_file, predict_file)
-		os.sys(cmd)
+
+		self.config.log.info("running cmd: %s" % cmd)
+		os.system(cmd)
 
 		# json.dump(predict_dict)??
 	def eval(self, eval_type, target_file, predict_dict, predict_file=""):
 		if eval_type == "official":
-			official_eval(target_file, predict_dict, predict_filename)
+			self.official_eval(target_file, predict_dict, predict_file)
 		else:
 			self.config.log.warning("eval: type {} not supported yet.".format(eval_type))

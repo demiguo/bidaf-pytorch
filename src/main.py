@@ -89,7 +89,7 @@ def main(argv):
         if config.args["optimizer"] != "YF":  # YF can't save state dict right now
             checkpoint["optimizer_state_dict"] = optimizer.state_dict()
         checkpoint_file = config.args["model_dir"] + config.args["model_name"] + "-EPOCH%d" % epoch
-        troch.save(checkpoint, checkpoint_file)
+        torch.save(checkpoint, checkpoint_file)
         config.log.info("saving checkpoint: {}".format(checkpoint_file))
 
 
@@ -100,13 +100,13 @@ def main(argv):
         model, optimizer, dev_avg_loss, dev_answer_dict = trainer.run(model, dev_id_conversion[0], dev_loader, optimizer, mode="dev")
 
         # loss is a float tensor with size 1
-        config.log.info("[EPOCH %d] LOSS = (train)%.5lf | (dev)%.5lf" % (epoch, train_avg_loss[0], test_avg_loss[0]))
+        config.log.info("[EPOCH %d] LOSS = (train)%.5lf | (dev)%.5lf" % (epoch, train_avg_loss[0], dev_avg_loss[0]))
         
         answer_filename = "{}/{}-EPOCH{}".format(config.args["model_dir"], config.args["model_name"], epoch)
         config.log.info("[EVAUATION] TRAIN EVAL")
         evaluator.eval("official", train_file, train_answer_dict, "{}.answer.train".format(answer_filename))
         config.log.info("[EVAUATION] DEV EVAL")
-        evaluator.eval("official", dev_file, dev_answer_dict, epoch, "{}.answer.dev".format(answer_filename))
+        evaluator.eval("official", dev_file, dev_answer_dict, "{}.answer.dev".format(answer_filename))
 
         save_checkpoint(epoch)
 
