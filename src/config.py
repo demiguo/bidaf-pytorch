@@ -1,9 +1,9 @@
 import sys
 import random
-import torch 
-import torch.autograd as autograd 
-import torch.nn as nn 
-import torch.optim as optim 
+import torch
+import torch.autograd as autograd
+import torch.nn as nn
+import torch.optim as optim
 import numpy as np
 import argparse
 import torch.utils.data
@@ -50,7 +50,7 @@ class Config:
         parser.add_argument("-glove_file", "--glove_file", help="Glove File", required=False, default="../data/glove/glove.6B.100d.txt")
         parser.add_argument("-model_dir", "--model_dir", help="Model Directory", required=False, default="../models/")
         parser.add_argument("-model_name", "--model_name", help="Model Name", required=False, default="sample")
-        
+
         parser.add_argument("-mode", "--mode", help="Mode of the program", required=False, default="train")
         parser.add_argument("-use_cuda", "--use_cuda", help="Whether to use cuda or not", type=bool, required=False, default=True)
         parser.add_argument("-default_device", "--default_device", help="Cuda default GPU #", type=int, required=False, default=0)
@@ -63,17 +63,17 @@ class Config:
         parser.add_argument("-dropout", "--dropout", help="Drop Out Rate", type=float, required=False, default=0.2)
         # TODO(demi): add weight_decay and var_decay
 
-        parser.add_argument("-highway_num_layers", "--highway_num_layers", help="number of layers in highway network for char embedding", type=int, required=False, default=2)
-        parser.add_argument("-hidden_dim", "--hidden_dim", help="Hidden Size of the model", type=int, required=False, default=100)
-        parser.add_argument("-char_embedding_dim", "--char_embedding_dim", help="Char Embedding dimension (output channel dimension of CNN)", type=int, required=False, default=100)
+        parser.add_argument("-highway_num_layers", "--highway_num_layers", help="number of layers in highway network for char embedding", type=int, required=False, default=1) #2
+        parser.add_argument("-hidden_dim", "--hidden_dim", help="Hidden Size of the model", type=int, required=False, default=16) #100
+        parser.add_argument("-char_embedding_dim", "--char_embedding_dim", help="Char Embedding dimension (output channel dimension of CNN)", type=int, required=False, default=16) # 100
         parser.add_argument("-char_single_embedding_dim", "--char_single_embedding_dim", help="Char Embedding dimension for single character", type=int, required=False, default=8)
         parser.add_argument("-filter_height", "--filter_height", help="Filter Height for Char Embedding CNN layer", type=int, required=False, default=5)
 
-        parser.add_argument("-max_num_sent", "--max_num_sent", help="Max number of sentences in a paragraph", type=int, required=False, default=8)
-        parser.add_argument("-max_p_length", "--max_p_length", help="Max length of a passage", type=int, required=False, default=400)
-        parser.add_argument("-max_q_length", "--max_q_length", help="Max length of a query", type=int, required=False, default=30)
-        parser.add_argument("-max_word_size", "--max_word_size", help="Max length of a word", type=int, required=False, default=16)
-        
+        parser.add_argument("-max_num_sent", "--max_num_sent", help="Max number of sentences in a paragraph", type=int, required=False, default=1)
+        parser.add_argument("-max_p_length", "--max_p_length", help="Max length of a passage", type=int, required=False, default=900)
+        parser.add_argument("-max_q_length", "--max_q_length", help="Max length of a query", type=int, required=False, default=60)
+        parser.add_argument("-max_word_size", "--max_word_size", help="Max length of a word", type=int, required=False, default=40)
+
         self.args = vars(parser.parse_args())
 
         if self.args["mode"] == "fake":
@@ -83,7 +83,7 @@ class Config:
         # NB(demi): These following parameters will be automatically generated in main
         self.args["vocab_size"] = 0
         self.args["char_vocab_size"] = 0
-        self.args["glove_dim"] = 100 
+        self.args["glove_dim"] = 100
 
 
 
@@ -137,4 +137,4 @@ class Config:
         for config_item in self.args:
             output += "\t{}:{}\n".format(config_item, self.args[config_item])
         output += "}\n"
-        return output 
+        return output

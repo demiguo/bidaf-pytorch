@@ -38,7 +38,7 @@ class CharEmbeddingLayer(nn.Module):
         text_char = text_char.contiguous().view(batch_size * max_length, max_word_length)
         text_char = self.embedding_lookup(text_char)
         assert text_char.size() == (batch_size * max_length, max_word_length, self.char_single_embedding_dim)
-        
+
         # dropout + cnn
         if self.dropout < 1.0:
             assert is_train is not None
@@ -51,9 +51,9 @@ class CharEmbeddingLayer(nn.Module):
         text_char = text_char.contiguous().view(batch_size * max_length * self.char_embedding_dim, -1)
         text_char = nn.functional.relu(text_char)
 
-        # maxpool 
+        # maxpool
         text_char = torch.max(text_char, 1)[0]
-        assert text_char.size() == (batch_size * max_length * self.char_embedding_dim, 1)
+        assert text_char.size() == (batch_size * max_length * self.char_embedding_dim, )
         text_char = text_char.contiguous().view(batch_size, max_length, self.char_embedding_dim)
         return text_char
 
@@ -119,7 +119,7 @@ class AttentionLayer(nn.Module):
         c2q_logits = logits.view(self.batch_size * self.max_num_sent * self.max_p_length, self.max_q_length)
         c2q_logits = nn.Softmax()(c2q_logits)
         c2q_logits = c2q_logits.view(self.batch_size, self.max_num_sent, self.max_p_length, self.max_q_length).unsqueeze(4).repeat(1,1,1,1,self.contextual_dim)
-        u_a = c2q_logits * u_aug 
+        u_a = c2q_logits * u_aug
         u_a = torch.sum(u_a, 3).view(self.batch_size, self.max_num_sent, self.max_p_length, self.contextual_dim)
 
         # get q2c attention
@@ -130,8 +130,15 @@ class AttentionLayer(nn.Module):
         q2c_logits = nn.Softmax()(q2c_logits)
         q2c_logits = q2c_logits.view(self.batch_size, self.max_num_sent, self.max_p_length).unsqueeze(3).repeat(1,1,1,self.contextual_dim)
         h_a = q2c_logits * h
+        assert h_a.size() == (self.batch_size, self.max_num_sent, self.max_p_length, self.contextual_dim)
         h_a = torch.sum(h_a, 2)
+        if len(h_a.size()) == 3:
+            h_a = h_a.unsqueeze(2)
+        #print "after torch.sum(2) : h_a.size()=", h_a.size()
+        assert h_a.size() == (self.batch_size, self.max_num_sent, 1, self.contextual_dim)
         h_a = h_a.repeat(1, 1, self.max_p_length, 1)
+        #print "h_a.size()=", h_a.size()
+        #print "self.batch_size=%d, self.max_num_sent=%d, self.max_p_length=%d, self.contextual_dim=%d" % (self.batch_size, self.max_num_sent, self.max_p_length, self.contextual_dim)
         assert h_a.size() == (self.batch_size, self.max_num_sent, self.max_p_length, self.contextual_dim)
 
         return u_a, h_a

@@ -1,9 +1,9 @@
 #import spacy
 import sys
-import torch 
-import torch.autograd as autograd 
-import torch.nn as nn 
-import torch.optim as optim 
+import torch
+import torch.autograd as autograd
+import torch.nn as nn
+import torch.optim as optim
 import numpy as np
 import argparse
 import torch.utils.data
@@ -30,17 +30,17 @@ def main(argv):
 
     # TODO(demi): switch "overwrite" to False
     train_data_raw, dev_data_raw, i2w, w2i, i2c, c2i, new_glove_file, glove_dim, vocab_size, char_vocab_size\
-         = squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file, overwrite=True)  
+         = squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file, overwrite=True)
     config.log.info("finish reading squad data in raw formats")
 
-    config.update_batch([("glove_file", new_glove_file), 
-                   ("glove_dim", glove_dim), 
+    config.update_batch([("glove_file", new_glove_file),
+                   ("glove_dim", glove_dim),
                    ("vocab_size", vocab_size),
                    ("char_vocab_size", char_vocab_size)])
 
 
     config.log.warning("reminder: now we only support train/fake mode")
-    assert config.args["mode"] in ["trian", "fake"], "mode not found"
+    assert config.args["mode"] in ["train", "fake"], "mode (%s) not found" % config.args["mode"]
 
     train_id_conversion, train_data = make_dataset(config, train_data_raw, w2i, c2i)
     dev_id_conversion, dev_data = make_dataset(config, dev_data_raw, w2i, c2i)
@@ -101,12 +101,12 @@ def main(argv):
 
         # loss is a float tensor with size 1
         config.log.info("[EPOCH %d] LOSS = (train)%.5lf | (dev)%.5lf" % (epoch, train_avg_loss[0], dev_avg_loss[0]))
-        
+
         answer_filename = "{}/{}-EPOCH{}".format(config.args["model_dir"], config.args["model_name"], epoch)
         config.log.info("[EVAUATION] TRAIN EVAL")
-        evaluator.eval("official", train_file, train_answer_dict, "{}.answer.train".format(answer_filename))
+        evaluator.eval("official", train_file, train_answer_dict, "{}/answer.train".format(config.args["model_dir"], answer_filename))
         config.log.info("[EVAUATION] DEV EVAL")
-        evaluator.eval("official", dev_file, dev_answer_dict, "{}.answer.dev".format(answer_filename))
+        evaluator.eval("official", dev_file, dev_answer_dict, "{}/answer.dev".format(config.args["model_dir"], answer_filename))
 
         save_checkpoint(epoch)
 

@@ -1,23 +1,23 @@
 
 import torch
-import torch.nn as nn 
-import torch.autograd as autograd 
-import torch.optim as optim 
+import torch.nn as nn
+import torch.autograd as autograd
+import torch.optim as optim
 
 import layers
-from utils import exp_mask 
+from utils import exp_mask
 
 import nltk
 import tqdm
 import pandas as pd
 import numpy as np
-from tqdm import tqdm 
+from tqdm import tqdm
 
 eps = 1e-10
 class BiDAF(nn.Module):
     def __init__(self, config, i2w):
         super(BiDAF, self).__init__()
-        self.config = config 
+        self.config = config
         self.i2w = i2w
         self.vocab_size = self.config.args["vocab_size"]
         self.hidden_dim = self.config.args["hidden_dim"]
@@ -40,7 +40,7 @@ class BiDAF(nn.Module):
         self.highway_network = layers.HighwayNetwork(self.embedding_dim, self.config.args["highway_num_layers"], self.config.args["dropout"])
 
         # contextual layer
-        self.contextual_dim = self.hidden_dim * 2  
+        self.contextual_dim = self.hidden_dim * 2
         self.config.update_single("contextual_dim", self.contextual_dim)
         self.context_biLSTM = nn.LSTM(self.embedding_dim, self.contextual_dim // 2, num_layers=1, bidirectional=True, dropout=0.5, batch_first=True)
 
@@ -54,7 +54,7 @@ class BiDAF(nn.Module):
         self.config.update_single("model_dim", self.model_dim)
         self.model_biLSTM = nn.LSTM(self.attention_dim, self.model_dim // 2, num_layers=2, bidirectional=True, dropout=0.5, batch_first=True)
 
-        # output layer 
+        # output layer
         self.w_p1 = nn.Linear(self.attention_dim + self.model_dim, 1, bias=False)
         self.w_p2 = nn.Linear(self.attention_dim + self.model_dim, 1, bias=False)
         self.output_biLSTM = nn.LSTM(self.model_dim, self.model_dim // 2, num_layers=1, bidirectional=True, dropout=0.5, batch_first=True)
@@ -94,8 +94,8 @@ class BiDAF(nn.Module):
             self.word_embedding_layer.weight.data.copy_(torch.FloatTensor(glove_weight).cuda())
         else:
             self.word_embedding_layer.weight.data.copy_(torch.FloatTensor(glove_weight))
-    
-        # NB(demi): for unknown words, we set it to be all 0s. so we now use trainable glove. 
+
+        # NB(demi): for unknown words, we set it to be all 0s. so we now use trainable glove.
         #           we may change this later.
         # self.word_embedding_layer.weight.requires_grad = False
 
@@ -122,7 +122,7 @@ class BiDAF(nn.Module):
         i2answer_dict = {}
         p_1 = p_1_softmax.contiguous().view(self.batch_size, self.max_num_sent, self.max_p_length)
         p_2 = p_2_softmax.contiguous().view(self.batch_size, self.max_num_sent, self.max_p_length)
-        for batch_id in tqdm(range(self.batch_size), desc="In model: get answer"):
+        for batch_id in range(self.batch_size):
             best_answer = (-1, -1, -1)  # sent_id, start_id, end_id
             best_prob = -1e30
             for sent_id in range(self.max_num_sent):
@@ -150,15 +150,16 @@ class BiDAF(nn.Module):
                     if passages_mask[batch_id][sent_id][idx].data[0] == 0:
                         # out of range
                         break
-                    cur_prob = p_1[batch_id][sent_id][idx]
-                    if cur_prob > start_prob + eps:
-                        start_prob = p_1[batch_id][sent_id][idx]
-                        start_idx = idx
+                    cur_p1_prob = p_1[batch_id][sent_id][idx].data[0]
+                    cur_p2_prob = p_2[batch_id][sent_id][idx].data[0]
 
-                    if cur_prob * start_prob > best_prob + eps:
+                    if cur_p1_prob > start_prob + eps:
+                        star_prob = cur_p1_prob
+                        start_idx = idx
+                    if cur_p2_prob * start_prob > best_prob + eps:
                         best_answer = (sent_id, start_idx, idx)
-                        best_prob = cur_prob * start_prob 
-            if -1 in best_answer: 
+                        best_prob = cur_p2_prob * start_prob
+            if -1 in best_answer:
                 # invalid
                 self.config.log.warning("model -> get answer: can't find best answer span")
                 best_answer_text = ""
@@ -181,13 +182,13 @@ class BiDAF(nn.Module):
         # passages_char: batch_size * max_p_length * max_word_size (in character indices)
         # questions are similar format
 
-        # QS(demi): max_num_sent * max_p_length OR max_num_sent, max_p_length? 
+        # QS(demi): max_num_sent * max_p_length OR max_num_sent, max_p_length?
         # QS(demi): is it ok to store all different variables? will it increase the overall memory?
         # QS(demi): does 'viewing' very costly?
 
         ### EMBEDDING LAYER ###
 
-        # QS(demi): is it shared? 
+        # QS(demi): is it shared?
         passages_char = passages_char.contiguous().view(self.batch_size, self.max_num_sent * self.max_p_length, self.max_word_size)
         p_char_embed = self.char_embedding_layer(passages_char, self.training)
         q_char_embed = self.char_embedding_layer(questions_char, self.training)

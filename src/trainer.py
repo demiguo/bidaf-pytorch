@@ -1,8 +1,8 @@
 import sys
-import torch 
-import torch.autograd as autograd 
-import torch.nn as nn 
-import torch.optim as optim 
+import torch
+import torch.autograd as autograd
+import torch.nn as nn
+import torch.optim as optim
 import numpy as np
 import argparse
 import torch.utils.data
@@ -26,7 +26,7 @@ class Trainer:
             model.eval()
 
         answer_dict = {}
-        total_loss = torch.FloatTensor([0.0])
+        total_loss = torch.FloatTensor([0.0]) if not self.config.args["use_cuda"] else torch.FloatTensor([0.0]).cuda()
         total_batch = 0
         self.config.log.info("len(data_loader)= %d" % len(data_loader))
         for data in tqdm(data_loader, desc="running {} mode".format(mode)):
@@ -38,9 +38,9 @@ class Trainer:
                 data_variable.append(autograd.Variable(data_item))
             assert len(data_variable) == 9, "data loader error in Trainer: data_variable length {} not equal to 9".format(len(data_variable))
 
-            #ids, passages, questions, 
-            #passages_char, questions_char, 
-            #passages_mask, questions_mask, 
+            #ids, passages, questions,
+            #passages_char, questions_char,
+            #passages_mask, questions_mask,
             #answer_starts, answer_ends = data_variable
 
             total_batch += data_variable[0].size(0)
@@ -58,11 +58,10 @@ class Trainer:
 
             if mode == "train":
                 cur_loss /= data_variable[0].size(0)   # normalize loss
-                print "cur_loss=", cur_loss
                 cur_loss.backward()
                 torch.nn.utils.clip_grad_norm(model.get_train_parameters(), self.config.args.get("clip", 5.0))
                 optimizer.step()
-            
+
             if self.config.args["mode"] == "fake":
                 self.config.log.info("trainer: finish updating model")
 

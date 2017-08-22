@@ -1,5 +1,4 @@
 *debug (compile error) 
-1.fix mask
-2.fix too many "<UNK>"
-3.debug  why slow
+(1)temporarily consider each paragraph as a sentence
+(2)
 *debug (something executable, and get preliminary results)

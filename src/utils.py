@@ -3,13 +3,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-from sets import Set 
+from sets import Set
 import json
 import unicodedata
 import nltk
 import numpy as np
 import pandas as pd
-from tqdm import tqdm 
+from tqdm import tqdm
 import re
 import io
 import os
@@ -43,7 +43,10 @@ def normalize(text):
 
 """ word tokenize """
 def tokenize_word(text):
-    return text.split(" ")
+    text = text.encode("ascii", errors="replace")
+    text = " ".join(text.split("-"))
+    text = nltk.word_tokenize(text)
+    return text
 
 """ flatten json for train data """
 def squad_flatten_json_train(config, filename, overwrite=False):
@@ -68,24 +71,29 @@ def squad_flatten_json_train(config, filename, overwrite=False):
     counter = 0
     for passage in tqdm(f['data'], desc="squad flatten json train data"):
         counter += 1
-        for paragraph in tqdm(passage['paragraphs'], desc="passage %d"%counter):
+        for paragraph in passage['paragraphs']:
             context = paragraph['context']
             context = normalize(context)
-            context_final = context.split('.')
-            context_final = [tokenize_word(sent) for sent in context_final]
+
+
+            #config.log.info("new paragraph={}".format(context.encode("utf-8")))
+            #config.log.info("split into # sentences = %d" % len(context_final))
+
+            context_final = [tokenize_word(context)]
             max_num_sent = max(max_num_sent, len(context_final))
             for sent in context_final:
                 max_p_length = max(max_p_length, len(sent))
                 for word in sent:
                     max_word_size = max(max_word_size, len(word))
-                    vocab.add(word) 
+                    vocab.add(word)
                     for c in word:
                         chars.add(c)
             counter_paragraph += 1
 
             for qa in paragraph['qas']:
                 id_, question, answers = qa['id'], qa['question'], qa['answers']
-                answers = [normalize(a['text']) for a in answers]               
+                #config.log.info("new qa: {}\n{}\n{}\n".format(id_, question.encode("utf-8"), answers))
+                answers = [normalize(a['text']) for a in answers]
                 answer_final = answers
 
                 question = normalize(question)
@@ -131,24 +139,23 @@ def squad_flatten_json_dev(config, filename, overwrite=False):
     counter = 0
     for passage in tqdm(f['data'], desc="squad flatten json dev data"):
         counter += 1
-        for paragraph in tqdm(passage['paragraphs'], desc="passage %d"%counter):
+        for paragraph in passage['paragraphs']:
             context = paragraph['context']
             context = normalize(context)
-            context_final = context.split('.')
-            context_final = [tokenize_word(sent) for sent in context_final]
+            context_final = [tokenize_word(context)]
             max_num_sent = max(max_num_sent, len(context_final))
             for sent in context_final:
                 max_p_length = max(max_p_length, len(sent))
                 for word in sent:
                     max_word_size = max(max_word_size, len(word))
-                    vocab.add(word) 
+                    vocab.add(word)
                     for c in word:
                         chars.add(c)
             counter_paragraph += 1
 
             for qa in paragraph['qas']:
                 id_, question, answers = qa['id'], qa['question'], qa['answers']
-                answers = [normalize(a['text']) for a in answers]               
+                answers = [normalize(a['text']) for a in answers]
                 answer_final = answers
 
                 question = normalize(question)
@@ -177,6 +184,7 @@ def squad_flatten_json_dev(config, filename, overwrite=False):
 def squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file, overwrite=False):
     train_data, train_vocab, train_chars = squad_flatten_json_train(config, train_file, overwrite)
     dev_data, dev_vocab, dev_chars = squad_flatten_json_dev(config, dev_file, overwrite)
+
 
     config.log.info("squad read data: finish flatten json ......")
     # now build vocab and dictionaries
@@ -215,7 +223,7 @@ def squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file
     all_zero = " ".join(["0"] * glove_dim)
     glove_matrix = [all_zero] * counter  # for unknown words, we set them to all zeros
     config.log.info("glove_matrix.len = %d" % len(glove_matrix))
-    
+
     if config.args["mode"] == "fake":
         config.log.info("fake mode: skipped loading glove")
     else:
@@ -229,7 +237,7 @@ def squad_read_data(config, train_file, dev_file, old_glove_file, new_glove_file
                 glove_matrix[w2i[word]] = vec_str
             else:
                 config.log.debug("not found word {}".format(word.encode("utf-8")))
-    
+
     for glove_line in glove_matrix:
         out.write(glove_line + "\n")
     f.close()
@@ -242,16 +250,16 @@ def get_answer_span(passage, answer, config):
     if len(answer) == 0:
         config.log.debug("answer is null - skipped")
         return 0, 0
-    elif answer[-1] == ".":
-        config.log.debug("answer ends with '.' - deleted '.'")
-        answer = answer[:-1]
+
+    answer = tokenize_word(answer)
+    answer = " ".join(answer)
     #???
     num_sent = len(passage)
     answer_len = len(answer.split(" "))
     # TODO(demi): not very efficient right now, we may need to speed it up
 
     max_p_length = config.args["max_p_length"]
-    print "get_answer_span: max_p_length=", max_p_length
+    #print "get_answer_span: max_p_length=", max_p_length
 
     words = []
     positions = []
@@ -270,22 +278,22 @@ def get_answer_span(passage, answer, config):
             # get end_id
             x, y = positions[j-1]
             end_id = x * max_p_length + y
-            print "FOUND: start=", start_id, " END=", end_id
             return start_id, end_id
-    config.log.warning("can't find answer for {}".format(answer))
+    config.log.warning("can't find answer for {}".format(answer.encode("utf-8")))
+    print "answer=", answer.encode("utf-8")
     print "passage:"
     for sent in passage:
         sent_str = " ".join(sent)
         print sent_str.encode("utf-8")
     print "\n"
-    print "answer: %s" % answer 
-    return 0, 0  
+    print "answer: %s" % answer
+    return 0, 0
 
 """ create mask and align data converted into indices. return new dataset & mask (numpy) """
 def make_dataset(config, data, w2i, c2i):
     data_id, data_passage, data_question, data_answer = data
 
-    batch_size = len(data)
+    batch_size = len(data_id)
     new_data_passage = np.zeros((batch_size, config.args["max_num_sent"], config.args["max_p_length"]), dtype=int)
     new_data_passage_mask = np.zeros((batch_size, config.args["max_num_sent"], config.args["max_p_length"]), dtype=int)
     new_data_passage_char = np.zeros((batch_size, config.args["max_num_sent"], config.args["max_p_length"], config.args["max_word_size"]), dtype=int)
@@ -306,19 +314,29 @@ def make_dataset(config, data, w2i, c2i):
         old2new[old_id] = new_id
 
     # new_answer_start - new_answer_end (happy to know you)
+    config.log.info("make dataset: num batch=%d" % batch_size)
+    bad_answers = 0
     for batch_id in tqdm(range(batch_size), desc="finding exact answer span"):
         cur_answer_start = []
         cur_answer_end = []
         for answer in data_answer[batch_id]:
             astart, aend = get_answer_span(data_passage[batch_id], answer, config)
+            if astart == 0 and aend == 0:
+                continue
             cur_answer_start.append(astart)
             cur_answer_end.append(aend)
 
+        #assert len(cur_answer_start) >= 1, "found 0 answers for batch_id=%d" % batch_id
+        if len(cur_answer_start) == 0:
+            cur_answer_start.append(0)
+            cur_answer_end.append(0)
+            bad_answers += 1
         # NB(demi): currently, even for dev, we only select on answer
         random.seed(config.args["seed"])
-        select_id = random.choice(range(len(data_answer[batch_id])))
+        select_id = random.choice(range(len(cur_answer_start)))
         new_answer_start[batch_id] = cur_answer_start[select_id]
         new_answer_end[batch_id] = cur_answer_end[select_id]
+    print "bad ansers : %d out of %d " % (bad_answers, batch_size)
 
     # process passaged
     for i in range(batch_size):
@@ -360,7 +378,7 @@ def make_dataset(config, data, w2i, c2i):
 class QnADataset(torch.utils.data.Dataset):
     def __init__(self, data, config):
         data_id, data_passage, data_question, data_passage_char, data_question_char, data_passage_mask, data_question_mask, answer_start, answer_end = data
-        
+
         self.data_size = len(data_passage)
         indices = range(self.data_size)
 
@@ -392,7 +410,7 @@ class QnADataset(torch.utils.data.Dataset):
             self.answer_ends.append(answer_end[i:j])
 
         # sanity check
-        assert len(self.ids) == self.num_batch 
+        assert len(self.ids) == self.num_batch
         assert len(self.passages) == self.num_batch
         assert len(self.passages_char) == self.num_batch
         assert len(self.questions) == self.num_batch
@@ -402,8 +420,8 @@ class QnADataset(torch.utils.data.Dataset):
         assert len(self.answer_starts) == self.num_batch
         assert len(self.answer_ends) == self.num_batch
 
-        config.log.info("in dataset: passages_char each batch size={}".format(self.passages_char[0].shape))
-        print "DATASET answer_ends=", self.answer_ends        
+        #config.log.info("in dataset: passages_char each batch size={}".format(self.passages_char[0].shape))
+        #print "DATASET answer_ends=", self.answer_ends
     def __getitem__(self, index):
         # NB(demi): assume it's already numpy arrays
         return np.array(self.ids[index]),\
